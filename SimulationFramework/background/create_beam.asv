@@ -1,0 +1,147 @@
+function beam = create_beam(beam_data,disp_progress)
+if any(strcmp(disp_progress,'True'))
+    progressbar('creating structure...')
+end
+
+if ischar(beam_data)
+    beam_data = convertCharsToStrings(beam_data);
+else
+end
+
+% Reading input file and creating arrays for the properties of the beams:
+beam_properties = readtable(beam_data,'Format','auto'); %xlsread(beam_data,'','','basic');
+beam_properties = table2array(beam_properties(:,2:end));
+ID_beam = str2double(beam_properties(1,:));
+Xsection = beam_properties(2,:);
+t_beam = str2double(beam_properties(3,:));
+n_element_beam = str2double(beam_properties(4,:));
+L_beam = str2double(beam_properties(5,:));
+m0_beam = str2double(beam_properties(6,:));
+m1_beam = str2double(beam_properties(7,:));
+c0_beam = str2double(beam_properties(8,:));
+c1_beam = str2double(beam_properties(9,:));
+xCM_beam = str2double(beam_properties(10,:));
+yCM_beam = str2double(beam_properties(11,:));
+zCM_beam = str2double(beam_properties(12,:));
+ay_beam = str2double(beam_properties(13,:));
+az_beam = str2double(beam_properties(14,:));
+Lambda_beam_deg = str2double(beam_properties(15,:));
+Gamma_beam_deg = str2double(beam_properties(16,:));
+AoI_beam_deg = str2double(beam_properties(17,:));
+connectivity_beam = str2double(beam_properties(18,:));
+connection_point_beam = str2double(beam_properties(19,:));
+E_beam = str2double(beam_properties(20,:));
+G_beam = str2double(beam_properties(22,:));
+
+n_beam = length(ID_beam);
+beam(1:n_beam) = struct('Xsection','','n_element',0,'L',0,'L_element',0,...
+    'C_i0',zeros(3),'yCM',0,'zCM',0,...
+    'ay',0,'az',0,...
+    'Lambda_deg',0,'Gamma_deg',0,'AoI_deg',0,'m',0,'c',0,...
+    'connectivity',0,'connection_point',0,...
+    'connection_element',0,'connection_element_point',0,'E',0,'G',0,...
+    'element',struct('r0',zeros(3,1),'r1',zeros(3,1),...
+    'Xsection_Iyy',0,'Xsection_Izz',0,'Xsection_Iyz',0,...
+    'Xsection_J',0,'Xsection_A',0,...
+    'x0_element',0,'x1_element',0,'m',0,'c',0));
+
+syms x
+for i_beam = 1:n_beam
+    beam(i_beam).Xsection = char(Xsection(i_beam));
+    if endsWith(beam(i_beam).Xsection,'.txt') == 1
+        Xsection_data_raw = readtable(beam(i_beam).Xsection);
+    end
+    beam(i_beam).t_beam = t_beam(i_beam);
+    beam(i_beam).n_element = n_element_beam(i_beam);
+    beam(i_beam).L = L_beam(i_beam);
+    beam(i_beam).L_element = beam(i_beam).L/beam(i_beam).n_element;
+    beam(i_beam).Lambda_deg = Lambda_beam_deg(i_beam);
+    beam(i_beam).Gamma_deg = Gamma_beam_deg(i_beam);
+    beam(i_beam).AoI_deg = AoI_beam_deg(i_beam);
+    beam(i_beam).xCM = xCM_beam(i_beam);
+    beam(i_beam).yCM = yCM_beam(i_beam);
+    beam(i_beam).zCM = zCM_beam(i_beam);
+    beam(i_beam).ay = ay_beam(i_beam);
+    beam(i_beam).az = az_beam(i_beam);
+    beam(i_beam).C_i0 = DCM(1,deg2rad(beam(i_beam).AoI_deg))*DCM(2,deg2rad(beam(i_beam).Gamma_deg))*DCM(3,deg2rad(beam(i_beam).Lambda_deg));
+    beam(i_beam).m = m0_beam(i_beam) + m1_beam(i_beam)*x;
+    beam(i_beam).c = c0_beam(i_beam) + c1_beam(i_beam)*x;
+    beam(i_beam).connectivity = connectivity_beam(i_beam);
+    beam(i_beam).connection_point = connection_point_beam(i_beam);
+    beam(i_beam).E = E_beam(i_beam);
+    beam(i_beam).G = G_beam(i_beam);
+
+    for i_element = 1:beam(i_beam).n_element
+        if i_element == 1 && isnan(beam(i_beam).connectivity) && isnan(beam(i_beam).connection_point)
+            beam(i_beam).element(i_element).r0 = [0;0;0];
+            beam(i_beam).element(i_element).x0_element = 0;
+            beam(i_beam).element(i_element).x1_element = beam(i_beam).element(i_element).x0_element + beam(i_beam).L_element;
+        elseif i_element == 1 && isnan(beam(i_beam).connectivity) && ~isnan(beam(i_beam).connection_point)
+            beam(i_beam).element(i_element).r0 = beam(i_beam).C_i0.'*[beam(i_beam).connection_point;0;0];
+            beam(i_beam).element(i_element).x0_element = 0;
+            beam(i_beam).element(i_element).x1_element = beam(i_beam).element(i_element).x0_element + beam(i_beam).L_element;
+        elseif i_element == 1 && ~isnan(beam(i_beam).connectivity)
+            beam(i_beam).element(i_element).r0 = beam(beam(i_beam).connectivity).C_i0.'*(beam(beam(i_beam).connectivity).C_i0*beam(beam(i_beam).connectivity).element(1).r0 + [beam(i_beam).connection_point;0;0]);
+            beam(i_beam).element(i_element).x0_element = 0;
+            beam(i_beam).element(i_element).x1_element = beam(i_beam).element(i_element).x0_element + beam(i_beam).L_element;
+        else
+            beam(i_beam).element(i_element).r0 = beam(i_beam).element(i_element-1).r1;
+            beam(i_beam).element(i_element).x1_element = beam(i_beam).element(i_element).x0_element + beam(i_beam).L_element;
+
+        end
+        if i_beam ~= 1
+            for i = 1:beam(beam(i_beam).connectivity).n_element
+                if beam(i_beam).connection_point >= beam(beam(i_beam).connectivity).element(i).x0_element && beam(i_beam).connection_point <= beam(beam(i_beam).connectivity).element(i).x1_element
+                    beam(i_beam).connection_element = i;
+                    beam(i_beam).connection_element_point = (beam(i_beam).connection_point - beam(beam(i_beam).connectivity).element(i).x0_element)/(beam(beam(i_beam).connectivity).element(i).x1_element - beam(beam(i_beam).connectivity).element(i).x0_element);
+                else
+                end
+            end
+        else
+        end
+        beam(i_beam).element(i_element).r1 = beam(i_beam).C_i0.'*(beam(i_beam).C_i0*beam(i_beam).element(i_element).r0 + [beam(i_beam).L_element;0;0]);
+
+        beam(i_beam).element(i_element).m = double(vpaintegral(beam(i_beam).m,beam(i_beam).element(i_element).x0_element,beam(i_beam).element(i_element).x1_element));
+        beam(i_beam).element(i_element).c = double(mean([subs(beam(i_beam).c,x,beam(i_beam).element(i_element).x1_element),subs(beam(i_beam).c,x,beam(i_beam).element(i_element).x0_element)]));
+
+        % Calculation of cross-section properties for each element:
+        if endsWith(beam(i_beam).Xsection,'.txt') == 1
+            Xsection_data = (beam(i_beam).element(i_element).c).*Xsection_data_raw{2:end,:};
+            Xsection_data_interp = [interpft(Xsection_data(:,1),500) interpft(Xsection_data(:,2),500)];
+            [A,I,~] = polygeom(Xsection_data_interp(:,1),Xsection_data_interp(:,2));
+            beam(i_beam).element(i_element).Xsection_A = A(1);
+            beam(i_beam).element(i_element).Xsection_Iyy = I(4) + beam(i_beam).element(i_element).Xsection_A*((beam(i_beam).yCM*beam(i_beam).element(i_element).c-A(2))^2 + (beam(i_beam).zCM*beam(i_beam).element(i_element).c-A(3))^2);
+            beam(i_beam).element(i_element).Xsection_Izz = I(5) + beam(i_beam).element(i_element).Xsection_A*((beam(i_beam).yCM*beam(i_beam).element(i_element).c-A(2))^2 + (beam(i_beam).zCM*beam(i_beam).element(i_element).c-A(3))^2);
+            beam(i_beam).element(i_element).Xsection_Iyz = I(6) + beam(i_beam).element(i_element).Xsection_A*(beam(i_beam).yCM*beam(i_beam).element(i_element).c-A(2))*(beam(i_beam).zCM*beam(i_beam).element(i_element).c-A(3));
+        elseif any(strcmp(beam(i_beam).Xsection,'Rectangular'))
+            beam(i_beam).element(i_element).Xsection_A = beam(i_beam).element(i_element).c^2*beam(i_beam).t_beam;
+            beam(i_beam).element(i_element).Xsection_Iyy = 1/12*beam(i_beam).element(i_element).c*(beam(i_beam).element(i_element).c*beam(i_beam).t_beam)^3 + beam(i_beam).element(i_element).Xsection_A*((beam(i_beam).yCM*beam(i_beam).element(i_element).c-beam(i_beam).element(i_element).c/2)^2 + (beam(i_beam).zCM*beam(i_beam).element(i_element).c-0)^2);
+            beam(i_beam).element(i_element).Xsection_Izz = 1/12*beam(i_beam).element(i_element).c^3*(beam(i_beam).element(i_element).c*beam(i_beam).t_beam) + beam(i_beam).element(i_element).Xsection_A*((beam(i_beam).yCM*beam(i_beam).element(i_element).c-beam(i_beam).element(i_element).c/2)^2 + (beam(i_beam).zCM*beam(i_beam).element(i_element).c-0)^2);
+            beam(i_beam).element(i_element).Xsection_Iyz = beam(i_beam).element(i_element).Xsection_A*abs(beam(i_beam).yCM*beam(i_beam).element(i_element).c-beam(i_beam).element(i_element).c/2)*abs(beam(i_beam).zCM*beam(i_beam).element(i_element).c-0);
+        elseif any(strcmp(beam(i_beam).Xsection,'Circular'))
+            beam(i_beam).element(i_element).Xsection_A = pi*beam(i_beam).element(i_element).c^2/4;
+            beam(i_beam).element(i_element).Xsection_Iyy = pi/64*beam(i_beam).element(i_element).c^4 + beam(i_beam).element(i_element).Xsection_A*((beam(i_beam).yCM*beam(i_beam).element(i_element).c-beam(i_beam).element(i_element).c/2)^2 + (beam(i_beam).zCM*beam(i_beam).element(i_element).c-0)^2);
+            beam(i_beam).element(i_element).Xsection_Izz = pi/64*beam(i_beam).element(i_element).c^4 + beam(i_beam).element(i_element).Xsection_A*((beam(i_beam).yCM*beam(i_beam).element(i_element).c-beam(i_beam).element(i_element).c/2)^2 + (beam(i_beam).zCM*beam(i_beam).element(i_element).c-0)^2);
+            beam(i_beam).element(i_element).Xsection_Iyz = beam(i_beam).element(i_element).Xsection_A*abs(beam(i_beam).yCM*beam(i_beam).element(i_element).c-beam(i_beam).element(i_element).c/2)*abs(beam(i_beam).zCM*beam(i_beam).element(i_element).c-0);
+        else
+            error('Cross-section not specified!')
+        end
+
+        % Torsion constant approximation for solid cross-section - see Kollbrunner, C. F., et al. Torsion in Structures: an engineering approach. 1969.
+        beam(i_beam).element(i_element).Xsection_J = beam(i_beam).element(i_element).Xsection_A^4/(40*(beam(i_beam).element(i_element).Xsection_Iyy + beam(i_beam).element(i_element).Xsection_Izz));
+        
+        beam(i_beam).element(i_element).EIyy = 2e4;%beam(i_beam).E*beam(i_beam).element(i_element).Xsection_Iyy;
+        beam(i_beam).element(i_element).EIzz = 2e4;%beam(i_beam).E*beam(i_beam).element(i_element).Xsection_Izz;
+        beam(i_beam).element(i_element).GJ = 1e4;%beam(i_beam).G*beam(i_beam).element(i_element).Xsection_J;
+        beam(i_beam).element(i_element).EA = beam(i_beam).E*beam(i_beam).element(i_element).Xsection_A;
+
+        if i_element ~= beam(i_beam).n_element
+            beam(i_beam).element(i_element+1).x0_element = beam(i_beam).element(i_element).x1_element;
+        else
+        end
+    end
+    %save background\beam_data.mat beam
+    if any(strcmp(disp_progress,'True'))
+        progressbar('done')
+    end
+end
